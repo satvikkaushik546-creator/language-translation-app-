@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>LinguaAI – Translator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+    min-height: 100vh;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  select option { background: #1e293b !important; color: #e2e8f0 !important; }
+  textarea::placeholder { color: #334155; }
+  textarea { caret-color: #818cf8; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+  .spin { animation: spin 0.7s linear infinite; }
+  .panel-fade { animation: fadeIn 0.25s ease; }
+  button:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid #818cf8; outline-offset: 2px;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useRef, useEffect, useCallback } = React;
+
+const LANGUAGES = [
+  { code:"auto",                    name:"Detect Language",        flag:"🌐" },
+  { code:"Afrikaans",               name:"Afrikaans",              flag:"🇿🇦" },
+  { code:"Arabic",                  name:"Arabic",                 flag:"🇸🇦" },
+  { code:"Bengali",                 name:"Bengali",                flag:"🇧🇩" },
+  { code:"Chinese (Simplified)",    name:"Chinese (Simplified)",   flag:"🇨🇳" },
+  { code:"Chinese (Traditional)",   name:"Chinese (Traditional)",  flag:"🇹🇼" },
+  { code:"Dutch",                   name:"Dutch",                  flag:"🇳🇱" },
+  { code:"English",                 name:"English",                flag:"🇬🇧" },
+  { code:"French",                  name:"French",                 flag:"🇫🇷" },
+  { code:"German",                  name:"German",                 flag:"🇩🇪" },
+  { code:"Greek",                   name:"Greek",                  flag:"🇬🇷" },
+  { code:"Gujarati",                name:"Gujarati",               flag:"🇮🇳" },
+  { code:"Hebrew",                  name:"Hebrew",                 flag:"🇮🇱" },
+  { code:"Hindi",                   name:"Hindi",                  flag:"🇮🇳" },
+  { code:"Indonesian",              name:"Indonesian",             flag:"🇮🇩" },
+  { code:"Italian",                 name:"Italian",                flag:"🇮🇹" },
+  { code:"Japanese",                name:"Japanese",               flag:"🇯🇵" },
+  { code:"Kannada",                 name:"Kannada",                flag:"🇮🇳" },
+  { code:"Korean",                  name:"Korean",                 flag:"🇰🇷" },
+  { code:"Malay",                   name:"Malay",                  flag:"🇲🇾" },
+  { code:"Marathi",                 name:"Marathi",                flag:"🇮🇳" },
+  { code:"Nepali",                  name:"Nepali",                 flag:"🇳🇵" },
+  { code:"Persian",                 name:"Persian",                flag:"🇮🇷" },
+  { code:"Polish",                  name:"Polish",                 flag:"🇵🇱" },
+  { code:"Portuguese",              name:"Portuguese",             flag:"🇧🇷" },
+  { code:"Punjabi",                 name:"Punjabi",                flag:"🇮🇳" },
+  { code:"Romanian",                name:"Romanian",               flag:"🇷🇴" },
+  { code:"Russian",                 name:"Russian",                flag:"🇷🇺" },
+  { code:"Spanish",                 name:"Spanish",                flag:"🇪🇸" },
+  { code:"Swahili",                 name:"Swahili",                flag:"🇰🇪" },
+  { code:"Swedish",                 name:"Swedish",                flag:"🇸🇪" },
+  { code:"Tamil",                   name:"Tamil",                  flag:"🇮🇳" },
+  { code:"Telugu",                  name:"Telugu",                 flag:"🇮🇳" },
+  { code:"Thai",                    name:"Thai",                   flag:"🇹🇭" },
+  { code:"Turkish",                 name:"Turkish",                flag:"🇹🇷" },
+  { code:"Ukrainian",               name:"Ukrainian",              flag:"🇺🇦" },
+  { code:"Urdu",                    name:"Urdu",                   flag:"🇵🇰" },
+  { code:"Vietnamese",              name:"Vietnamese",             flag:"🇻🇳" },
+];
+
+const MAX = 3000;
+
+async function callClaude(text, src, tgt) {
+  const srcLabel = src === "auto"
+    ? "auto-detect the source language"
+    : `treat the source as ${src}`;
+  const prompt = `You are a professional translator. ${srcLabel}. Translate the text below into ${tgt}.
+Rules:
+- Output ONLY the translated text, nothing else
+- No labels, no explanations, no markdown
+- Preserve all formatting, line breaks, and punctuation
+
+Text:
+${text}`;
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1000,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return (data.content || []).map(b => b.text || "").join("").trim();
+}
+
+/* ── small icon components (plain JS strings → dangerouslySetInnerHTML avoided, use SVG elements) ── */
+function IcoSwap() {
+  return React.createElement("svg", { width:20, height:20, viewBox:"0 0 20 20", fill:"none", "aria-hidden":"true" },
+    React.createElement("path", { d:"M4 7h12M4 7l3-3M4 7l3 3M16 13H4m12 0-3-3m3 3-3 3", stroke:"currentColor", strokeWidth:"1.6", strokeLinecap:"round", strokeLinejoin:"round" })
+  );
+}
+function IcoCopy({ done }) {
+  return done
+    ? React.createElement("svg", { width:16, height:16, viewBox:"0 0 16 16", fill:"none", "aria-hidden":"true" },
+        React.createElement("path", { d:"M3 8l4 4 6-7", stroke:"currentColor", strokeWidth:"1.8", strokeLinecap:"round", strokeLinejoin:"round" })
+      )
+    : React.createElement("svg", { width:16, height:16, viewBox:"0 0 16 16", fill:"none", "aria-hidden":"true" },
+        React.createElement("rect", { x:1, y:4, width:9, height:9, rx:1.5, stroke:"currentColor", strokeWidth:"1.4" }),
+        React.createElement("path", { d:"M4 4V2.5A1.5 1.5 0 015.5 1h7A1.5 1.5 0 0114 2.5v7A1.5 1.5 0 0112.5 11H11", stroke:"currentColor", strokeWidth:"1.4", strokeLinecap:"round" })
+      );
+}
+function IcoSpeak({ active }) {
+  return React.createElement("svg", { width:16, height:16, viewBox:"0 0 16 16", fill:"none", "aria-hidden":"true" },
+    React.createElement("path", { d:"M3 6H1v4h2l4 3V3L3 6z", stroke:"currentColor", strokeWidth:"1.4", strokeLinejoin:"round", fill: active ? "currentColor" : "none" }),
+    React.createElement("path", { d:"M11 5a3 3 0 010 6", stroke:"currentColor", strokeWidth:"1.4", strokeLinecap:"round" }),
+    React.createElement("path", { d:"M13 3a6 6 0 010 10", stroke:"currentColor", strokeWidth:"1.4", strokeLinecap:"round" })
+  );
+}
+function IcoClear() {
+  return React.createElement("svg", { width:14, height:14, viewBox:"0 0 14 14", fill:"none", "aria-hidden":"true" },
+    React.createElement("path", { d:"M1 1l12 12M13 1L1 13", stroke:"currentColor", strokeWidth:"1.6", strokeLinecap:"round" })
+  );
+}
+function IcoGlobe() {
+  return React.createElement("svg", { width:24, height:24, viewBox:"0 0 24 24", fill:"none", "aria-hidden":"true" },
+    React.createElement("circle", { cx:12, cy:12, r:10, stroke:"currentColor", strokeWidth:"1.6" }),
+    React.createElement("path", { d:"M12 2c-3 3-4.5 6.5-4.5 10S9 18.5 12 22M12 2c3 3 4.5 6.5 4.5 10S15 18.5 12 22M2 12h20", stroke:"currentColor", strokeWidth:"1.4" })
+  );
+}
+function IcoTranslate() {
+  return React.createElement("svg", { width:16, height:16, viewBox:"0 0 16 16", fill:"none", "aria-hidden":"true" },
+    React.createElement("path", { d:"M2 4h6M5 2v2M8 4c-.5 2-2 3.5-4 4.5M4 7c1 1 2.5 2 4.5 2.5M9 3l4 10M11 8h4", stroke:"currentColor", strokeWidth:"1.5", strokeLinecap:"round", strokeLinejoin:"round" })
+  );
+}
+
+/* ── small helpers ── */
+const S = {
+  page: { minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", padding:"40px 16px 80px" },
+  card: { width:"100%", maxWidth:880, background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:20, backdropFilter:"blur(12px)", overflow:"hidden", boxShadow:"0 24px 80px rgba(0,0,0,0.5)" },
+  langBar: { display:"flex", alignItems:"center", padding:"14px 20px", borderBottom:"1px solid rgba(255,255,255,0.08)", background:"rgba(255,255,255,0.03)", gap:8 },
+  label: { display:"block", fontSize:"0.68rem", fontWeight:600, letterSpacing:"0.08em", textTransform:"uppercase", color:"#64748b", marginBottom:4 },
+  select: { background:"transparent", border:"none", color:"#e2e8f0", fontSize:"0.95rem", fontWeight:600, cursor:"pointer", outline:"none", fontFamily:"inherit" },
+  panels: { display:"grid", gridTemplateColumns:"1fr 1px 1fr", minHeight:260 },
+  divider: { background:"rgba(255,255,255,0.08)" },
+  textarea: { flex:1, background:"transparent", border:"none", outline:"none", resize:"none", padding:"20px", color:"#f1f5f9", fontSize:"1rem", lineHeight:1.7, fontFamily:"inherit", minHeight:220, width:"100%" },
+  panelFooter: { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 16px", borderTop:"1px solid rgba(255,255,255,0.06)" },
+  iconBtn: { background:"none", border:"none", cursor:"pointer", color:"#64748b", display:"flex", alignItems:"center", gap:5, fontSize:"0.78rem", fontFamily:"inherit", padding:"4px 8px", borderRadius:6 },
+  actionRow: { padding:"20px", borderTop:"1px solid rgba(255,255,255,0.08)", display:"flex", alignItems:"center", justifyContent:"center", gap:12, background:"rgba(0,0,0,0.15)" },
+  kbd: { background:"rgba(255,255,255,0.08)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:4, padding:"1px 5px", fontSize:"0.72rem", color:"#64748b" },
+};
+
+function IconBtn({ onClick, title, children, active, style={} }) {
+  const [hov, setHov] = useState(false);
+  return React.createElement("button", {
+    onClick, title,
+    style: { ...S.iconBtn, color: active||hov ? (active?"#a5b4fc":"#e2e8f0") : "#64748b", background: active ? "rgba(129,140,248,0.15)" : (hov ? "rgba(255,255,255,0.06)" : "none"), transition:"all 0.15s", ...style },
+    onMouseEnter:()=>setHov(true), onMouseLeave:()=>setHov(false),
+  }, ...children);
+}
+
+function App() {
+  const [srcLang, setSrcLang] = useState("auto");
+  const [tgtLang, setTgtLang] = useState("French");
+  const [srcText, setSrcText] = useState("");
+  const [tgtText, setTgtText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [toast, setToast] = useState("");
+  const toastTimer = useRef(null);
+  const srcRef = useRef(null);
+
+  const showToast = useCallback(msg => {
+    setToast(msg);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(()=>setToast(""), 2400);
+  }, []);
+
+  const doTranslate = useCallback(async () => {
+    const text = srcText.trim();
+    if (!text || loading) return;
+    setLoading(true); setError(""); setTgtText("");
+    try {
+      const result = await callClaude(text, srcLang, tgtLang);
+      setTgtText(result);
+    } catch(e) {
+      setError("Translation failed — check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [srcText, srcLang, tgtLang, loading]);
+
+  useEffect(() => {
+    const h = e => { if ((e.ctrlKey||e.metaKey) && e.key==="Enter" && srcText.trim() && !loading) doTranslate(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [doTranslate, srcText, loading]);
+
+  const doSwap = () => {
+    if (srcLang==="auto") return;
+    const sl=srcLang, tl=tgtLang, st=srcText, tt=tgtText;
+    setSrcLang(tl); setTgtLang(sl); setSrcText(tt); setTgtText(st);
+  };
+
+  const doCopy = async () => {
+    if (!tgtText) return;
+    try {
+      await navigator.clipboard.writeText(tgtText);
+      setCopied(true); showToast("Copied to clipboard!");
+      setTimeout(()=>setCopied(false), 2000);
+    } catch { showToast("Copy failed — select text manually"); }
+  };
+
+  const doSpeak = () => {
+    if (!tgtText) return;
+    if (speaking) { window.speechSynthesis.cancel(); setSpeaking(false); return; }
+    const u = new SpeechSynthesisUtterance(tgtText);
+    u.onend = ()=>setSpeaking(false);
+    u.onerror = ()=>setSpeaking(false);
+    setSpeaking(true);
+    window.speechSynthesis.speak(u);
+  };
+
+  const doClear = () => {
+    setSrcText(""); setTgtText(""); setError("");
+    srcRef.current?.focus();
+  };
+
+  const canTranslate = srcText.trim().length > 0 && !loading;
+  const charWarn = srcText.length > MAX * 0.9;
+
+  const tgtLangs = LANGUAGES.filter(l=>l.code!=="auto");
+
+  return React.createElement("div", { style: S.page },
+
+    /* ── Header ── */
+    React.createElement("div", { style:{ textAlign:"center", marginBottom:36 } },
+      React.createElement("div", { style:{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, marginBottom:10 } },
+        React.createElement("span", { style:{ color:"#818cf8" } }, React.createElement(IcoGlobe)),
+        React.createElement("h1", { style:{ fontSize:"clamp(1.8rem,4vw,2.6rem)", fontWeight:800, letterSpacing:"-0.04em", background:"linear-gradient(90deg,#a5b4fc 0%,#818cf8 40%,#c084fc 100%)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" } }, "LinguaAI")
+      ),
+      React.createElement("p", { style:{ color:"#94a3b8", fontSize:"0.88rem" } }, "Powered by Claude · Translate across 37 languages instantly")
+    ),
+
+    /* ── Card ── */
+    React.createElement("div", { style: S.card },
+
+      /* Language bar */
+      React.createElement("div", { style: S.langBar },
+
+        React.createElement("div", { style:{ flex:1 } },
+          React.createElement("label", { htmlFor:"src-lang", style: S.label }, "From"),
+          React.createElement("select", { id:"src-lang", value:srcLang, onChange:e=>setSrcLang(e.target.value), style: S.select },
+            LANGUAGES.map(l => React.createElement("option", { key:l.code, value:l.code }, l.flag+" "+l.name))
+          )
+        ),
+
+        /* Swap btn */
+        React.createElement("button", {
+          onClick: doSwap,
+          disabled: srcLang==="auto",
+          title: srcLang==="auto" ? "Cannot swap while auto-detecting" : "Swap languages",
+          style:{ width:42, height:42, borderRadius:"50%", border:"1px solid rgba(255,255,255,0.12)", background:"rgba(255,255,255,0.06)", color: srcLang==="auto" ? "#334155" : "#a5b4fc", cursor: srcLang==="auto"?"not-allowed":"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"background 0.18s" },
+        }, React.createElement(IcoSwap)),
+
+        React.createElement("div", { style:{ flex:1, textAlign:"right" } },
+          React.createElement("label", { htmlFor:"tgt-lang", style: S.label }, "To"),
+          React.createElement("select", { id:"tgt-lang", value:tgtLang, onChange:e=>setTgtLang(e.target.value), style:{ ...S.select, float:"right" } },
+            tgtLangs.map(l => React.createElement("option", { key:l.code, value:l.code }, l.flag+" "+l.name))
+          )
+        )
+      ),
+
+      /* Panels */
+      React.createElement("div", { style: S.panels },
+
+        /* Source */
+        React.createElement("div", { style:{ display:"flex", flexDirection:"column" } },
+          React.createElement("textarea", {
+            ref: srcRef,
+            value: srcText,
+            onChange: e => setSrcText(e.target.value.slice(0, MAX)),
+            placeholder: "Type or paste text here…",
+            spellCheck: true,
+            "aria-label": "Source text",
+            style: S.textarea,
+          }),
+          React.createElement("div", { style: S.panelFooter },
+            React.createElement("span", { style:{ fontSize:"0.75rem", color: charWarn?"#f87171":"#475569", fontVariantNumeric:"tabular-nums" } },
+              `${srcText.length.toLocaleString()} / ${MAX.toLocaleString()}`
+            ),
+            srcText && React.createElement(IconBtn, { onClick:doClear, title:"Clear text" },
+              React.createElement(IcoClear), "Clear"
+            )
+          )
+        ),
+
+        /* Divider */
+        React.createElement("div", { style: S.divider }),
+
+        /* Target */
+        React.createElement("div", { style:{ display:"flex", flexDirection:"column" } },
+          loading
+            ? React.createElement("div", { style:{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:14, color:"#64748b" } },
+                React.createElement("div", { className:"spin", style:{ width:32, height:32, border:"3px solid rgba(129,140,248,0.2)", borderTop:"3px solid #818cf8", borderRadius:"50%" } }),
+                React.createElement("span", { style:{ fontSize:"0.85rem" } }, "Translating…")
+              )
+            : error
+              ? React.createElement("div", { style:{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", padding:20 } },
+                  React.createElement("div", { className:"panel-fade", style:{ background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.25)", borderRadius:10, padding:"14px 18px", color:"#fca5a5", fontSize:"0.88rem", textAlign:"center" } },
+                    "⚠️ ", error
+                  )
+                )
+              : React.createElement("div", { className: tgtText?"panel-fade":"", "aria-live":"polite", style:{ flex:1, padding:"20px", color: tgtText?"#f1f5f9":"#334155", fontSize:"1rem", lineHeight:1.7, whiteSpace:"pre-wrap", overflowY:"auto", minHeight:220, fontStyle: tgtText?"normal":"italic" } },
+                  tgtText || "Translation will appear here…"
+                ),
+
+          React.createElement("div", { style: S.panelFooter },
+            React.createElement("span", { style:{ fontSize:"0.75rem", color:"#334155" } }, tgtText ? `${tgtText.length.toLocaleString()} chars` : ""),
+            tgtText && React.createElement("div", { style:{ display:"flex", gap:4 } },
+              React.createElement(IconBtn, { onClick:doSpeak, title: speaking?"Stop speaking":"Read aloud", active:speaking },
+                React.createElement(IcoSpeak, { active:speaking }), speaking?"Stop":"Listen"
+              ),
+              React.createElement(IconBtn, { onClick:doCopy, title:"Copy translation", active:copied },
+                React.createElement(IcoCopy, { done:copied }), copied?"Copied!":"Copy"
+              )
+            )
+          )
+        )
+      ),
+
+      /* Translate action row */
+      React.createElement("div", { style: S.actionRow },
+        React.createElement("button", {
+          onClick: doTranslate,
+          disabled: !canTranslate,
+          style:{
+            background: canTranslate ? "linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%)" : "rgba(255,255,255,0.06)",
+            border:"none", borderRadius:12,
+            color: canTranslate ? "#fff" : "#475569",
+            cursor: canTranslate ? "pointer" : "not-allowed",
+            fontFamily:"inherit", fontSize:"0.95rem", fontWeight:600, letterSpacing:"0.01em",
+            padding:"13px 44px", display:"flex", alignItems:"center", gap:8,
+            transition:"all 0.18s",
+            boxShadow: canTranslate ? "0 4px 20px rgba(99,102,241,0.35)" : "none",
+          },
+        },
+          loading
+            ? React.createElement(React.Fragment, null,
+                React.createElement("div", { className:"spin", style:{ width:16, height:16, border:"2px solid rgba(255,255,255,0.3)", borderTop:"2px solid #fff", borderRadius:"50%" } }),
+                "Translating…"
+              )
+            : React.createElement(React.Fragment, null,
+                React.createElement(IcoTranslate),
+                "Translate"
+              )
+        ),
+        React.createElement("span", { style:{ fontSize:"0.74rem", color:"#334155" } },
+          "or ", React.createElement("kbd", { style: S.kbd }, "Ctrl"), " + ", React.createElement("kbd", { style: S.kbd }, "Enter")
+        )
+      )
+    ),
+
+    /* Toast */
+    toast && React.createElement("div", {
+      role:"status", "aria-live":"polite",
+      style:{ position:"fixed", bottom:28, left:"50%", transform:"translateX(-50%)", background:"#1e293b", border:"1px solid rgba(255,255,255,0.1)", color:"#e2e8f0", fontSize:"0.83rem", padding:"9px 18px", borderRadius:8, pointerEvents:"none", whiteSpace:"nowrap", boxShadow:"0 4px 16px rgba(0,0,0,0.4)", zIndex:999 }
+    }, toast)
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>
